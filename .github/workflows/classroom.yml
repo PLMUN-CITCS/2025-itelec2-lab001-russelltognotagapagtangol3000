@@ -1,0 +1,116 @@
+name: Autograding Tests
+on: ["push", "repository_dispatch"]
+permissions:
+  checks: write
+  actions: read
+  contents: read
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-classroom[bot]' && github.event.head_commit.id != github.event.repository.default_branch
+    steps:
+      - name: Checkout Student Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          pip install pylint # For syntax check
+
+      - name: File Existence Check - hello.py
+        id: file-existence-hello
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: File Existence Check - hello.py
+          command: "test -f hello.py"
+          timeout: 10
+          max-score: 10
+
+      - name: File Existence Check - intro.txt
+        id: file-existence-intro
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: File Existence Check - intro.txt
+          command: "test -f intro.txt"
+          timeout: 10
+          max-score: 10
+
+      - name: Syntax Check - hello.py
+        id: syntax-check-hello
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Syntax Check - hello.py
+          command: "pylint hello.py --disable=C" # Disable convention warnings
+          timeout: 10
+          max-score: 10  # Reduced score for syntax
+
+      - name: Intro.txt Format Check
+        id: format-check-intro
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Intro.txt Format Check
+          command: |
+            intro_content=$(cat intro.txt | tr -d '\n')  # Remove newlines
+            intro_regex="^Name:.*Course:.*Interests in programming:.*$" # Regex without newlines
+            if echo "$intro_content" | grep -qP "$intro_regex"; then
+              echo "::success::Intro.txt format is correct"
+            else
+              echo "::failure::Intro.txt format is incorrect"
+              exit 1
+            fi
+          timeout: 10
+          max-score: 20
+
+      - name: Hello.py Output Check
+        id: output-check-hello
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Hello.py Output Check
+          command: |
+            python3 hello.py > output.txt
+            if grep -q "Hello world!" output.txt && grep -qF "$(cat intro.txt)" output.txt; then
+                echo "Output Passed"
+            else
+                exit 1
+            fi
+          timeout: 10
+          max-score: 40
+
+      - name: Commit Message Check
+        id: commit-message-check
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Commit Message Check
+          command: |
+            commit_message=$(git log -1 --pretty=%B)
+            if [ -n "$commit_message" ]; then
+              # Check for a specific message (quote the string!)
+              if [ "$commit_message" = "My first Python program" ]; then  # Quoted string
+                echo "::success::Correct commit message."
+              elif [ "$commit_message" != "" ]; then # Check for any non-empty message
+                echo "::success::Commit message is present (but not the expected one)."
+              else
+                echo "::failure::Incorrect commit message."
+                exit 1
+              fi
+            else
+              echo "::failure::Commit message is missing."
+              exit 1
+            fi
+          timeout: 10
+          max-score: 10
+
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          FILE-EXISTENCE-HELLO_RESULTS: "${{steps.file-existence-hello.outputs.result}}"
+          FILE-EXISTENCE-INTRO_RESULTS: "${{steps.file-existence-intro.outputs.result}}"
+          SYNTAX-CHECK-HELLO_RESULTS: "${{steps.syntax-check-hello.outputs.result}}"
+          FORMAT-CHECK-INTRO_RESULTS: "${{steps.format-check-intro.outputs.result}}"
+          OUTPUT-CHECK-HELLO_RESULTS: "${{steps.output-check-hello.outputs.result}}"
+          COMMIT-MESSAGE-CHECK_RESULTS: "${{steps.commit-message-check.outputs.result}}"
+        with:
+          runners: file-existence-hello,file-existence-intro,syntax-check-hello,format-check-intro,output-check-hello,commit-message-check
